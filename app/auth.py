@@ -48,16 +48,25 @@ def forgot_password(email: EmailStr):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to send reset email: {str(e)}")
 
+
 @auth_router.post("/reset-password")
 def reset_password(reset_data: PasswordReset, access_token: str = Query(...)):
     try:
-        # Set the access token in the Supabase client
-        supabase.auth.set_session(access_token, '')
+        import jwt
+        from app.config import supabase_admin
         
-        # Update the password using the access token
-        update_result = supabase.auth.update_user({
-            'password': reset_data.password
-        })
+        # Decode the JWT to get user ID
+        decoded_token = jwt.decode(access_token, options={"verify_signature": False})
+        user_id = decoded_token.get('sub')
+        
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Invalid token")
+        
+        # Update user password using admin client
+        update_result = supabase_admin.auth.admin.update_user_by_id(
+            user_id, 
+            {"password": reset_data.password}
+        )
         
         if update_result.user:
             return {"message": "Password reset successfully!"}
@@ -66,6 +75,8 @@ def reset_password(reset_data: PasswordReset, access_token: str = Query(...)):
             
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Password reset failed: {str(e)}")
+
+
 
 @auth_router.get("/confirm")
 def confirm_email(token_hash: str = Query(...), type: str = Query(...)):

@@ -3,3 +3,7 @@ uvicorn
 python-dotenv
 supabase
 pydantic[email]
+sqlalchemy[asyncio]
+psycopg2-binary
+asyncpg
+PyJWT
