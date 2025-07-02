@@ -27,18 +27,29 @@ def signup(user: UserSignup):
 
 @auth_router.post("/login")
 def login(user: UserLogin):
-    result = supabase.auth.sign_in_with_password({
-        "email": user.email,
-        "password": user.password
-    })
+    try:
+        result = supabase.auth.sign_in_with_password({
+            "email": user.email,
+            "password": user.password
+        })
 
-    if result.session is None:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        if result.session is None:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    return {
-        "access_token": result.session.access_token,
-        "user": result.user
-    }
+        return {
+            "access_token": result.session.access_token,
+            "user": result.user
+        }
+        
+    except Exception as e:
+        # Better error handling
+        error_msg = str(e)
+        if "Invalid login credentials" in error_msg:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        elif "Email not confirmed" in error_msg:
+            raise HTTPException(status_code=401, detail="Please confirm your email before logging in")
+        else:
+            raise HTTPException(status_code=400, detail=f"Login failed: {error_msg}")
 
 @auth_router.post("/forgot-password")
 def forgot_password(email: EmailStr):
@@ -93,3 +104,11 @@ def confirm_email(token_hash: str = Query(...), type: str = Query(...)):
             
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Confirmation failed: {str(e)}")
+
+@auth_router.post("/resend-confirmation")
+def resend_confirmation(email: EmailStr):
+    try:
+        result = supabase.auth.resend(type="signup", email=email)
+        return {"message": "Confirmation email sent. Check your inbox."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to resend confirmation: {str(e)}")
