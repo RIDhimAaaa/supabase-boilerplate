@@ -16,6 +16,8 @@ Base = declarative_base()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_KEY")  # Service role key
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")  # Default to HS256 if not set
 
 # Regular client for normal operations
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
@@ -26,8 +28,10 @@ supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 # Direct database connection
 DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL connection string
 if DATABASE_URL:
+    # Sync engine for Alembic migrations
     sync_engine = create_engine(DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://"))
     
+    # Async engine for FastAPI app
     asyncpg_url = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
     
     if "?" in asyncpg_url:
@@ -41,8 +45,8 @@ if DATABASE_URL:
         asyncpg_url,
         echo=False,
         pool_pre_ping=False, 
-        pool_size=5,
-        max_overflow=0
+        pool_size=10,  # Increased for better performance
+        max_overflow=5  # Allow some overflow
     )
 
     AsyncSessionLocal = sessionmaker(
