@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, field_validator
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 import uuid
 
@@ -20,6 +20,51 @@ class ProfileUpdate(BaseModel):
     phone: Optional[str] = None
     bio: Optional[str] = None
 
+# RBAC Schemas
+class RoleBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class RoleCreate(RoleBase):
+    pass
+
+class Role(RoleBase):
+    id: str
+    created_at: datetime
+    
+    @field_validator('id', mode='before')
+    @classmethod
+    def convert_uuid_to_string(cls, v):
+        if isinstance(v, uuid.UUID):
+            return str(v)
+        return v
+    
+    class Config:
+        from_attributes = True
+
+class PermissionBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    resource: str
+    action: str
+
+class PermissionCreate(PermissionBase):
+    pass
+
+class Permission(PermissionBase):
+    id: str
+    created_at: datetime
+    
+    @field_validator('id', mode='before')
+    @classmethod
+    def convert_uuid_to_string(cls, v):
+        if isinstance(v, uuid.UUID):
+            return str(v)
+        return v
+    
+    class Config:
+        from_attributes = True
+
 class UserProfileResponse(BaseModel):
     id: str
     email: str
@@ -31,6 +76,7 @@ class UserProfileResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime] = None
+    roles: List[Role] = []  # Add roles to user profile response
 
     @field_validator('id', mode='before')
     @classmethod
