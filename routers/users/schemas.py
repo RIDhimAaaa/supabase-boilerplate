@@ -118,3 +118,9 @@ class UserRoleUpdate(BaseModel):
         if isinstance(v, uuid.UUID):
             return str(v)
         return v
+
+
+# Profile image upload response
+class ProfileImageUpload(BaseModel):
+    avatar_url: str
+    message: str

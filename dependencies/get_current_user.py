@@ -21,6 +21,7 @@ async def get_current_user(
     """Get current user from JWT token"""
     try:
         token = credentials.credentials
+        logger.info(f"Received token: {token[:20]}...")  # Log first 20 chars for debugging
         
         # Get JWT secret from Supabase anon key
         jwt_secret = JWT_SECRET_KEY
@@ -39,6 +40,7 @@ async def get_current_user(
         user_metadata = payload.get("user_metadata", {})
         role = user_metadata.get("role", "user")  # default to user
 
+        logger.info(f"Decoded user: {user_id}, email: {email}, role: {role}")
         
         if not user_id:
             raise HTTPException(
