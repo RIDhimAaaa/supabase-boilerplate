@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.auth import auth_router
-from app.users import users_router
+from routers.auth.auth import auth_router
+from routers.users import users_router
 
 app = FastAPI(
     title="Supabase FastAPI Boilerplate",

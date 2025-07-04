@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
-from dependencies.deps import get_current_user, get_user_with_roles, require_admin, require_roles
-from app.config import get_db
-from app.models import Profile, Role
-from app.schemas import ProfileUpdate, UserProfileResponse, RoleCreate, Role as RoleSchema
+from sqlalchemy.orm import selectinload
+from dependencies.get_current_user import get_current_user, get_user_with_roles, require_admin, require_roles
+from config import get_db
+from models import Profile, Role
+from routers.users.schemas import ProfileUpdate, UserProfileResponse, RoleCreate, Role as RoleSchema
 from typing import Optional, Dict, Any, List
 
 users_router = APIRouter(prefix="/users", tags=["users"])
@@ -55,27 +56,27 @@ async def update_profile(
     
     return profile
 
-# Admin-only endpoints
-@users_router.get("/", response_model=List[UserProfileResponse])
-async def list_users(
-    skip: int = 0,
-    limit: int = 100,
-    admin_user: Profile = Depends(require_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    """List all users (admin only)"""
-    stmt = select(Profile).offset(skip).limit(limit)
-    result = await db.execute(stmt)
-    profiles = result.scalars().all()
-    return profiles
-
-@users_router.post("/roles", response_model=RoleSchema)
+# RBAC Management Endpoints
+@users_router.post("/roles", response_model=Role)
 async def create_role(
     role_data: RoleCreate,
-    admin_user: Profile = Depends(require_admin),
+    current_user = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new role (admin only)"""
+    from models import Role
+    
+    # Check if role already exists
+    stmt = select(Role).where(Role.name == role_data.name)
+    result = await db.execute(stmt)
+    existing_role = result.scalar_one_or_none()
+    
+    if existing_role:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Role already exists"
+        )
+    
     role = Role(
         name=role_data.name,
         description=role_data.description
@@ -83,23 +84,43 @@ async def create_role(
     db.add(role)
     await db.commit()
     await db.refresh(role)
+    
     return role
 
+@users_router.get("/roles", response_model=List[Role])
+async def list_roles(
+    current_user = Depends(require_roles(["admin", "moderator"])),
+    db: AsyncSession = Depends(get_db)
+):
+    """List all roles (admin/moderator only)"""
+    from models import Role
+    
+    stmt = select(Role)
+    result = await db.execute(stmt)
+    roles = result.scalars().all()
+    
+    return roles
+
 @users_router.post("/{user_id}/roles/{role_name}")
-async def assign_role_to_user(
+async def assign_role(
     user_id: str,
     role_name: str,
-    admin_user: Profile = Depends(require_admin),
+    current_user = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
     """Assign role to user (admin only)"""
-    # Get user
-    user_stmt = select(Profile).where(Profile.id == user_id)
-    user_result = await db.execute(user_stmt)
-    user = user_result.scalar_one_or_none()
+    from models import Role
     
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    # Get user profile
+    user_stmt = select(Profile).options(selectinload(Profile.roles)).where(Profile.id == user_id)
+    user_result = await db.execute(user_stmt)
+    user_profile = user_result.scalar_one_or_none()
+    
+    if not user_profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
     
     # Get role
     role_stmt = select(Role).where(Role.name == role_name)
@@ -107,41 +128,73 @@ async def assign_role_to_user(
     role = role_result.scalar_one_or_none()
     
     if not role:
-        raise HTTPException(status_code=404, detail="Role not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Role not found"
+        )
     
-    # Add role if not already assigned
-    if role not in user.roles:
-        user.roles.append(role)
-        await db.commit()
+    # Check if user already has this role
+    if role in user_profile.roles:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User already has this role"
+        )
+    
+    # Assign role
+    user_profile.roles.append(role)
+    await db.commit()
     
     return {"message": f"Role '{role_name}' assigned to user"}
 
 @users_router.delete("/{user_id}/roles/{role_name}")
-async def remove_role_from_user(
+async def remove_role(
     user_id: str,
     role_name: str,
-    admin_user: Profile = Depends(require_admin),
+    current_user = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
     """Remove role from user (admin only)"""
-    # Get user with roles
-    user_stmt = select(Profile).where(Profile.id == user_id)
-    user_result = await db.execute(user_stmt)
-    user = user_result.scalar_one_or_none()
+    from models import Role
     
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    # Get user profile
+    user_stmt = select(Profile).options(selectinload(Profile.roles)).where(Profile.id == user_id)
+    user_result = await db.execute(user_stmt)
+    user_profile = user_result.scalar_one_or_none()
+    
+    if not user_profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
     
     # Find and remove role
     role_to_remove = None
-    for role in user.roles:
+    for role in user_profile.roles:
         if role.name == role_name:
             role_to_remove = role
             break
     
-    if role_to_remove:
-        user.roles.remove(role_to_remove)
-        await db.commit()
-        return {"message": f"Role '{role_name}' removed from user"}
-    else:
-        raise HTTPException(status_code=404, detail="User does not have this role")
+    if not role_to_remove:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User doesn't have this role"
+        )
+    
+    user_profile.roles.remove(role_to_remove)
+    await db.commit()
+    
+    return {"message": f"Role '{role_name}' removed from user"}
+
+@users_router.get("/", response_model=List[UserProfileResponse])
+async def list_users(
+    skip: int = 0,
+    limit: int = 100,
+    current_user = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """List all users (admin only)"""
+    stmt = select(Profile).options(selectinload(Profile.roles)).offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    profiles = result.scalars().all()
+    
+    return profiles

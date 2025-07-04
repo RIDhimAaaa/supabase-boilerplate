@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import EmailStr, BaseModel
-from app.schemas import UserSignup, UserLogin
-from app.config import supabase
+from routers.auth.schemas import UserSignup, UserLogin
+from config import supabase
 
 class PasswordReset(BaseModel):
     password: str
@@ -64,7 +64,7 @@ def forgot_password(email: EmailStr):
 def reset_password(reset_data: PasswordReset, access_token: str = Query(...)):
     try:
         import jwt
-        from app.config import supabase_admin
+        from config import supabase_admin
         
         # Decode the JWT to get user ID
         decoded_token = jwt.decode(access_token, options={"verify_signature": False})
