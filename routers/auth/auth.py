@@ -1,7 +1,11 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import EmailStr, BaseModel
-from routers.auth.schemas import UserSignup, UserLogin
+from routers.auth.schemas import UserSignup, UserLogin, RefreshTokenRequest, AuthResponse
+from routers.auth.helpers import create_auth_response, create_refresh_response, handle_auth_error, validate_token_refresh
 from config import supabase
+import logging
+
+logger = logging.getLogger(__name__)
 
 class PasswordReset(BaseModel):
     password: str
@@ -25,7 +29,7 @@ def signup(user: UserSignup):
 
     return {"message": "Check your email to confirm sign-up."}
 
-@auth_router.post("/login")
+@auth_router.post("/login", response_model=AuthResponse)
 def login(user: UserLogin):
     try:
         result = supabase.auth.sign_in_with_password({
@@ -36,20 +40,53 @@ def login(user: UserLogin):
         if result.session is None:
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
-        return {
-            "access_token": result.session.access_token,
-            "user": result.user
-        }
+        logger.info(f"User {user.email} logged in successfully")
+        return create_auth_response(result.session, result.user)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise handle_auth_error(e, "Login")
+
+
+@auth_router.post("/refresh", response_model=AuthResponse)
+def refresh_token(refresh_request: RefreshTokenRequest):
+    """
+    Refresh access token using refresh token
+    """
+    try:
+        # Validate refresh token format
+        if not validate_token_refresh(refresh_request.refresh_token):
+            raise HTTPException(status_code=400, detail="Invalid refresh token format")
+        
+        result = supabase.auth.refresh_session(refresh_request.refresh_token)
+        
+        if result.session is None:
+            raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+        logger.info("Token refreshed successfully")
+        return create_refresh_response(result.session)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise handle_auth_error(e, "Token refresh")
+
+
+@auth_router.post("/logout")
+def logout():
+    """
+    Logout user (client should discard tokens)
+    """
+    try:
+        # Supabase doesn't require server-side logout for JWTs
+        # Client should discard both access and refresh tokens
+        logger.info("User logged out")
+        return {"message": "Logged out successfully"}
         
     except Exception as e:
-        # Better error handling
-        error_msg = str(e)
-        if "Invalid login credentials" in error_msg:
-            raise HTTPException(status_code=401, detail="Invalid email or password")
-        elif "Email not confirmed" in error_msg:
-            raise HTTPException(status_code=401, detail="Please confirm your email before logging in")
-        else:
-            raise HTTPException(status_code=400, detail=f"Login failed: {error_msg}")
+        logger.error(f"Logout failed: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Logout failed: {str(e)}")
 
 @auth_router.post("/forgot-password")
 def forgot_password(email: EmailStr):
