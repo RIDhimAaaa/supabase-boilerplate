@@ -29,8 +29,7 @@ async def list_all_users(
 
 @router.put("/users/{user_id}/role", response_model=RoleUpdateResponse)
 async def update_user_role(
-    user_id: str,
-    new_role: str = Form(..., description="New role: user, admin"),
+    new_role: UserRoleUpdate,
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user),
     _rbac_check = Depends(require_user_management_write)
@@ -38,7 +37,7 @@ async def update_user_role(
     """
     Admin only: Update user role
     """
-    return await update_user_role_admin(user_id, new_role, current_user, db)
+    return await update_user_role_admin(new_role.user_id, new_role.role, current_user, db)
 
 
 @router.post("/users/update-role-no-auth", response_model=RoleUpdateResponse)
